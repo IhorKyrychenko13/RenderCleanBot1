@@ -1,16 +1,13 @@
-from fastapi import FastAPI, Request
-from aiogram import types
-from bot import bot, dp
+from fastapi import FastAPI
+import os
+import uvicorn
 
 app = FastAPI()
-
-@app.post("/webhook_path")
-async def webhook(request: Request):
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.feed_update(update, bot=bot)
-    return {"ok": True}
 
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)

@@ -3,8 +3,10 @@ import asyncio
 import psycopg2
 from psycopg2 import OperationalError
 from aiogram import Bot, Dispatcher, Router, types
-from aiogram.types import Message
+from aiogram.types import Message, Update
 from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+import uvicorn
 
 load_dotenv()
 
@@ -13,7 +15,7 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot)  # Важно: передать bot в Dispatcher
 router = Router()
 
 keywords = ["запрещённое слово1", "запрещённое слово2", "запрещённое слово3"]
@@ -120,3 +122,21 @@ async def check_and_delete(message: Message):
         conn.close()
 
 dp.include_router(router)
+
+app = FastAPI()
+
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
+@app.post("/webhook_path")
+async def webhook(request: Request):
+    data = await request.json()
+    update = Update(**data)
+    await dp.feed_update(update)  # feed_update для обработки апдейта в диспетчере
+    return {"ok": True}
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    print(f"Запуск uvicorn на порту {port}...")
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
