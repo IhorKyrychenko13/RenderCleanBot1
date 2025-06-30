@@ -1,18 +1,19 @@
 import os
 import asyncio
 import psycopg2
-from psycopg2 import OperationalError
-from aiogram import Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import Message
-from aiogram.dispatcher import Dispatcher as AiogramDispatcher
 from dotenv import load_dotenv
+from psycopg2 import OperationalError
 
 load_dotenv()
 
+TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-dp = AiogramDispatcher()
+bot = Bot(token=TOKEN, parse_mode="HTML")
+dp = Dispatcher()
 
 keywords = ["запрещённое слово1", "запрещённое слово2", "запрещённое слово3"]
 
@@ -20,28 +21,27 @@ def get_db_connection():
     try:
         return psycopg2.connect(DATABASE_URL)
     except OperationalError as e:
-        print(f"Ошибка подключения к базе данных: {e}")
+        print(f"❌ Ошибка подключения к базе данных: {e}")
         return None
 
 def initialize_database():
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось подключиться к базе данных для инициализации")
         return
     try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                text TEXT,
-                date TIMESTAMP,
-                thread_id INTEGER,
-                UNIQUE(text, thread_id)
-            )
-        """)
-        conn.commit()
-        print("Таблица messages успешно инициализирована")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    text TEXT,
+                    date TIMESTAMP,
+                    thread_id INTEGER,
+                    UNIQUE(text, thread_id)
+                )
+            """)
+            conn.commit()
+            print("✅ Таблица messages инициализирована")
     except Exception as e:
-        print(f"Ошибка при инициализации базы данных: {e}")
+        print(f"Ошибка при создании таблицы: {e}")
     finally:
         conn.close()
 
@@ -52,53 +52,48 @@ async def delete_bot_message(message: types.Message):
     await asyncio.sleep(60)
     try:
         await message.delete()
-        print(f"✅ Сообщение от бота удалено: {message.message_id}")
+        print(f"✅ Удалено: {message.message_id}")
     except Exception as e:
-        print(f"Ошибка при удалении сообщения от бота: {e}")
+        print(f"Ошибка при удалении сообщения: {e}")
 
-@dp.message_handler()
+@dp.message(F.chat.id == CHANNEL_ID)
 async def check_and_delete(message: Message):
-    if message.chat.id != CHANNEL_ID:
-        return
-
-    if message.from_user.username == "GroupHelp":
-        raw_text = message.text or message.caption or ""
-        if any(keyword.lower() in raw_text.lower() for keyword in keywords):
-            await message.delete()
-        return
-
     raw_text = message.text or message.caption or ""
-    text = normalize_text(raw_text)
     thread_id = message.message_thread_id if message.is_topic_message else 0
     username = message.from_user.username or message.from_user.full_name
 
+    # Проверка на бота GroupHelp
+    if message.from_user.username == "GroupHelp":
+        if any(k.lower() in raw_text.lower() for k in keywords):
+            await message.delete()
+        return
+
+    text = normalize_text(raw_text)
     conn = get_db_connection()
-    if conn is None:
+    if not conn:
         return
 
     try:
-        cursor = conn.cursor()
-        if text:
+        with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT date FROM messages
+                SELECT 1 FROM messages
                 WHERE text = %s AND thread_id = %s AND date > CURRENT_TIMESTAMP - INTERVAL '7 days'
             """, (text, thread_id))
-            result = cursor.fetchone()
-            if result:
+            if cursor.fetchone():
                 await message.delete()
-                bot_message = await message.answer(
+                reply = await message.answer(
                     f"❌ @{username}, вы уже публиковали такое объявление за последние 7 дней.",
                     reply_to_message_id=message.message_id
                 )
-                asyncio.create_task(delete_bot_message(bot_message))
+                asyncio.create_task(delete_bot_message(reply))
                 return
 
-        cursor.execute(
-            "INSERT INTO messages (text, date, thread_id) VALUES (%s, CURRENT_TIMESTAMP, %s)",
-            (text if text else "[Без текста]", thread_id)
-        )
-        conn.commit()
+            cursor.execute(
+                "INSERT INTO messages (text, date, thread_id) VALUES (%s, CURRENT_TIMESTAMP, %s)",
+                (text or "[Без текста]", thread_id)
+            )
+            conn.commit()
     except Exception as e:
-        print(f"Ошибка при работе с базой данных: {e}")
+        print(f"Ошибка при записи в БД: {e}")
     finally:
         conn.close()
