@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types
 from dotenv import load_dotenv
 import uvicorn
-from your_router_module import router  # импортируй этот модуль с твоим router
+from bot import router
 
 load_dotenv()
 
