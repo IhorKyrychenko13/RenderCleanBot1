@@ -13,7 +13,7 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 router = Router()
 
 keywords = ["запрещённое слово1", "запрещённое слово2", "запрещённое слово3"]
@@ -120,7 +120,3 @@ async def check_and_delete(message: Message):
         conn.close()
 
 dp.include_router(router)
-
-async def run_bot():
-    print("Бот запущен, ожидает обновления webhook")
-    await asyncio.Event().wait()  # просто "зависаем" — webhook, polling не нужен
