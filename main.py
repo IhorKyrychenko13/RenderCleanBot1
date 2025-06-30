@@ -1,7 +1,7 @@
 import os
 import asyncio
 import asyncpg
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import Update, Message
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
@@ -16,7 +16,6 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = FastAPI()
 
-# Запрещённые слова от GroupHelp
 FORBIDDEN_WORDS = ["запрещённое слово1", "запрещённое слово2", "запрещённое слово3"]
 
 # Создаём пул подключений к базе при старте
@@ -40,7 +39,6 @@ async def on_shutdown():
 def normalize_text(text: str) -> str:
     return ' '.join(text.strip().lower().split()) if text else ""
 
-# Удаление сообщения бота через 60 сек
 async def delete_bot_message(message: Message):
     await asyncio.sleep(60)
     try:
@@ -48,6 +46,7 @@ async def delete_bot_message(message: Message):
     except:
         pass
 
+# Хендлер сообщений
 @dp.message()
 async def handle_message(message: Message):
     if message.chat.id != CHANNEL_ID:
@@ -60,7 +59,7 @@ async def handle_message(message: Message):
     username = message.from_user.username or message.from_user.full_name
     user_tag = f"@{username}"
 
-    # 📛 Обработка GroupHelp
+    # Обработка GroupHelp
     if message.from_user.username == "GroupHelp":
         if any(word in text.lower() for word in FORBIDDEN_WORDS):
             try:
@@ -100,7 +99,7 @@ async def handle_message(message: Message):
         except:
             pass
 
-# Webhook
+# Webhook endpoint
 @app.post("/webhook")
 async def webhook_handler(request: Request):
     data = await request.json()

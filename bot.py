@@ -1,10 +1,14 @@
-from aiogram import Router, types, F
+from aiogram import Router, types
 import asyncio
 
 router = Router()
 
 FORBIDDEN_WORDS = ["запрещённое слово1", "запрещённое слово2", "запрещённое слово3"]
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+CHANNEL_ID = None  # Пока None, будем задавать позже
+
+def set_channel_id(channel_id: int):
+    global CHANNEL_ID
+    CHANNEL_ID = channel_id
 
 def normalize_text(text: str) -> str:
     return ' '.join(text.strip().lower().split()) if text else ""
@@ -40,7 +44,8 @@ async def handle_message(message: types.Message):
     if not text and not photo_count:
         return
 
-    db_pool = message.bot.dispatcher.workflow_data["db_pool"]
+    # db_pool нужно получить снаружи, например, через message.bot["db_pool"]
+    db_pool = message.bot['db_pool']
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT date FROM messages
