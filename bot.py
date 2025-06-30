@@ -2,20 +2,15 @@ import os
 import asyncio
 import psycopg2
 from psycopg2 import OperationalError
-from aiogram import Bot, Dispatcher, Router, types
-from aiogram.types import Message, Update
+from aiogram import Router, types
+from aiogram.types import Message
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
-import uvicorn
 
 load_dotenv()
 
-TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)  # Важно: передать bot в Dispatcher
 router = Router()
 
 keywords = ["запрещённое слово1", "запрещённое слово2", "запрещённое слово3"]
@@ -58,37 +53,28 @@ async def delete_bot_message(message: types.Message):
     await asyncio.sleep(60)
     try:
         await message.delete()
-        print(f"✅ Сообщение от бота удалено через минуту: {message.message_id}")
+        print(f"✅ Сообщение от бота удалено: {message.message_id}")
     except Exception as e:
         print(f"Ошибка при удалении сообщения от бота: {e}")
 
 @router.message()
 async def check_and_delete(message: Message):
     if message.chat.id != CHANNEL_ID:
-        print(f"Сообщение из другой группы: {message.chat.id}, игнорируем")
         return
 
     if message.from_user.username == "GroupHelp":
         raw_text = message.text or message.caption or ""
-        print(f"Сообщение от GroupHelp: {raw_text}")
         if any(keyword.lower() in raw_text.lower() for keyword in keywords):
-            print("Обнаружено запрещённое сообщение от GroupHelp. Удаляем.")
             await message.delete()
-        else:
-            print("Запрещённые слова в сообщении от GroupHelp не обнаружены.")
         return
 
     raw_text = message.text or message.caption or ""
     text = normalize_text(raw_text)
     thread_id = message.message_thread_id if message.is_topic_message else 0
     username = message.from_user.username or message.from_user.full_name
-    photo_count = len(message.photo or [])
-
-    print(f"Получено сообщение от @{username}: {text if text else '[Без текста]'}. Изображения: {photo_count}")
 
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось подключиться к базе данных для проверки сообщений")
         return
 
     try:
@@ -100,10 +86,8 @@ async def check_and_delete(message: Message):
             """, (text, thread_id))
             result = cursor.fetchone()
             if result:
-                print(f"❌ Сообщение от @{username} дублирует предыдущее. Удаляем.")
                 await message.delete()
-                bot_message = await bot.send_message(
-                    message.chat.id,
+                bot_message = await message.answer(
                     f"❌ @{username}, вы уже публиковали такое объявление за последние 7 дней.",
                     message_thread_id=thread_id
                 )
@@ -115,28 +99,7 @@ async def check_and_delete(message: Message):
             (text if text else "[Без текста]", thread_id)
         )
         conn.commit()
-        print(f"✅ Сообщение от @{username} сохранено.")
     except Exception as e:
         print(f"Ошибка при работе с базой данных: {e}")
     finally:
         conn.close()
-
-dp.include_router(router)
-
-app = FastAPI()
-
-@app.get("/")
-async def root():
-    return {"status": "ok"}
-
-@app.post("/webhook_path")
-async def webhook(request: Request):
-    data = await request.json()
-    update = Update(**data)
-    await dp.feed_update(update)  # feed_update для обработки апдейта в диспетчере
-    return {"ok": True}
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    print(f"Запуск uvicorn на порту {port}...")
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
