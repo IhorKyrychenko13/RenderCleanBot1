@@ -16,7 +16,7 @@ dp = Dispatcher()
 
 app = FastAPI()
 
-db_pool: asyncpg.Pool | None = None
+db_pool: asyncpg.Pool | None = None  # глобальная переменная пула
 
 async def create_db_pool():
     return await asyncpg.create_pool(DATABASE_URL)
@@ -25,6 +25,7 @@ async def create_db_pool():
 async def startup():
     global db_pool
     db_pool = await create_db_pool()
+    print("DB pool created:", db_pool)
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
@@ -60,6 +61,11 @@ def normalize_text(text: str) -> str:
 
 @dp.message()
 async def check_and_delete(message: types.Message):
+    global db_pool
+    if db_pool is None:
+        print("DB pool not initialized!")
+        return
+
     if message.chat.id != CHANNEL_ID:
         return
 
