@@ -16,7 +16,7 @@ dp = Dispatcher()
 
 app = FastAPI()
 
-db_pool: asyncpg.Pool | None = None  # глобальная переменная пула
+db_pool: asyncpg.Pool | None = None
 
 async def create_db_pool():
     return await asyncpg.create_pool(DATABASE_URL)
@@ -25,7 +25,6 @@ async def create_db_pool():
 async def startup():
     global db_pool
     db_pool = await create_db_pool()
-    print("DB pool created:", db_pool)
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
@@ -71,7 +70,7 @@ async def check_and_delete(message: types.Message):
 
     raw_text = message.text or message.caption or ""
     text = normalize_text(raw_text)
-    thread_id = message.message_thread_id if hasattr(message, "message_thread_id") else 0
+    thread_id = getattr(message, "message_thread_id", 0)
     username = message.from_user.username or message.from_user.full_name
 
     if not text:
@@ -89,14 +88,18 @@ async def check_and_delete(message: types.Message):
         if row:
             try:
                 await message.delete()
-            except Exception:
-                pass
+                print(f"Deleted duplicate message from @{username}")
+            except Exception as e:
+                print(f"Failed to delete message: {e}")
 
-            bot_message = await message.answer(
-                f"❌ @{username}, такое сообщение уже было за последние 7 дней.",
-                reply_to_message_id=message.message_id
-            )
-            asyncio.create_task(delete_bot_message(bot_message))
+            try:
+                bot_message = await message.answer(
+                    f"❌ @{username}, такое сообщение уже было за последние 7 дней.",
+                    reply_to_message_id=message.message_id
+                )
+                asyncio.create_task(delete_bot_message(bot_message))
+            except Exception as e:
+                print(f"Failed to send warning message: {e}")
             return
 
         try:
@@ -104,5 +107,5 @@ async def check_and_delete(message: types.Message):
                 "INSERT INTO messages (text, thread_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                 text, thread_id
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"DB insert error: {e}")
