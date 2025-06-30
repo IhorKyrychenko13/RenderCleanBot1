@@ -1,8 +1,28 @@
+from fastapi import FastAPI, Request
+from aiogram import Bot, Dispatcher, types
+import asyncio
+import os
+from dotenv import load_dotenv
 
-from fastapi import FastAPI
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
 app = FastAPI()
 
-@app.get("/")
-async def root():
-    return {"status": "alive"}
+@app.post("/webhook_path")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    update = types.Update(**data)
+    await dp.process_update(update)
+    return {"ok": True}
+
+@app.on_event("startup")
+async def on_startup():
+    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.set_webhook(url="https://dekete.onrender.com/webhook_path")
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await bot.session.close()
