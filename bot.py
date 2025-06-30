@@ -1,5 +1,5 @@
-import asyncio
 import os
+import asyncio
 import psycopg2
 from psycopg2 import OperationalError
 from aiogram import Bot, Dispatcher, Router, types
@@ -7,6 +7,7 @@ from aiogram.types import Message
 from dotenv import load_dotenv
 
 load_dotenv()
+
 TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -51,7 +52,7 @@ initialize_database()
 def normalize_text(text):
     return ' '.join(text.split()).lower().strip() if text else ""
 
-async def delete_bot_message(message):
+async def delete_bot_message(message: types.Message):
     await asyncio.sleep(60)
     try:
         await message.delete()
@@ -120,8 +121,9 @@ async def check_and_delete(message: Message):
     finally:
         conn.close()
 
+dp.include_router(router)
+
 async def run_bot():
-    dp.include_router(router)
-    print("Бот запущен и ждет обновлений по вебхуку")
-    # Не используем polling, т.к. webhook — бот запускается с внешним сервером
+    # Просто ждём событий по webhook, polling не нужен!
+    print("Бот запущен, ожидает обновления webhook")
     await asyncio.Event().wait()
