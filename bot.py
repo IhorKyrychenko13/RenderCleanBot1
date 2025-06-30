@@ -1,6 +1,6 @@
 import os
 import asyncio
-import asyncpg  # async драйвер для PostgreSQL
+import asyncpg
 from aiogram import Bot, Dispatcher, types
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
@@ -16,17 +16,15 @@ dp = Dispatcher()
 
 app = FastAPI()
 
-# Создаем подключение к БД один раз
+db_pool: asyncpg.Pool | None = None
+
 async def create_db_pool():
     return await asyncpg.create_pool(DATABASE_URL)
-
-db_pool = None
 
 @app.on_event("startup")
 async def startup():
     global db_pool
     db_pool = await create_db_pool()
-    # Инициализируем таблицу, если нет
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
@@ -48,7 +46,6 @@ async def webhook(request: Request):
 async def root():
     return {"status": "ok"}
 
-# Удаление сообщений от бота через 60 сек
 async def delete_bot_message(message: types.Message):
     await asyncio.sleep(60)
     try:
@@ -56,7 +53,6 @@ async def delete_bot_message(message: types.Message):
     except Exception:
         pass
 
-# Нормализация текста
 def normalize_text(text: str) -> str:
     if not text:
         return ""
@@ -73,10 +69,9 @@ async def check_and_delete(message: types.Message):
     username = message.from_user.username or message.from_user.full_name
 
     if not text:
-        return  # Если нет текста, пропускаем
+        return
 
     async with db_pool.acquire() as conn:
-        # Проверяем, есть ли такое сообщение за последние 7 дней в этом потоке
         row = await conn.fetchrow(
             """
             SELECT date FROM messages
@@ -86,22 +81,18 @@ async def check_and_delete(message: types.Message):
         )
 
         if row:
-            # Удаляем повторное сообщение
             try:
                 await message.delete()
             except Exception:
                 pass
 
-            # Отправляем предупреждение
             bot_message = await message.answer(
                 f"❌ @{username}, такое сообщение уже было за последние 7 дней.",
                 reply_to_message_id=message.message_id
             )
-            # Автоматически удаляем предупреждение через 60 сек
             asyncio.create_task(delete_bot_message(bot_message))
             return
 
-        # Если не найдено, вставляем новое сообщение в базу
         try:
             await conn.execute(
                 "INSERT INTO messages (text, thread_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
@@ -109,4 +100,3 @@ async def check_and_delete(message: types.Message):
             )
         except Exception:
             pass
-
