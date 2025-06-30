@@ -12,9 +12,9 @@ if not TOKEN:
     raise RuntimeError("TOKEN не установлен")
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot)  # передаём bot сюда!
 
-dp.include_router(router)  # подключаем роутер один раз здесь
+dp.include_router(router)  # подключаем роутер один раз
 
 app = FastAPI()
 
