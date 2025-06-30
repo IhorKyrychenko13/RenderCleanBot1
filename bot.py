@@ -1,10 +1,9 @@
 import os
 import asyncio
-import psycopg2
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import Message
+import asyncpg  # async драйвер для PostgreSQL
+from aiogram import Bot, Dispatcher, types
+from fastapi import FastAPI, Request
 from dotenv import load_dotenv
-from psycopg2 import OperationalError
 
 load_dotenv()
 
@@ -12,88 +11,102 @@ TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-bot = Bot(token=TOKEN, parse_mode="HTML")
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-keywords = ["запрещённое слово1", "запрещённое слово2", "запрещённое слово3"]
+app = FastAPI()
 
-def get_db_connection():
-    try:
-        return psycopg2.connect(DATABASE_URL)
-    except OperationalError as e:
-        print(f"❌ Ошибка подключения к базе данных: {e}")
-        return None
+# Создаем подключение к БД один раз
+async def create_db_pool():
+    return await asyncpg.create_pool(DATABASE_URL)
 
-def initialize_database():
-    conn = get_db_connection()
-    if conn is None:
-        return
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    text TEXT,
-                    date TIMESTAMP,
-                    thread_id INTEGER,
-                    UNIQUE(text, thread_id)
-                )
-            """)
-            conn.commit()
-            print("✅ Таблица messages инициализирована")
-    except Exception as e:
-        print(f"Ошибка при создании таблицы: {e}")
-    finally:
-        conn.close()
+db_pool = None
 
-def normalize_text(text):
-    return ' '.join(text.split()).lower().strip() if text else ""
+@app.on_event("startup")
+async def startup():
+    global db_pool
+    db_pool = await create_db_pool()
+    # Инициализируем таблицу, если нет
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                text TEXT,
+                date TIMESTAMP DEFAULT now(),
+                thread_id INTEGER,
+                UNIQUE(text, thread_id)
+            );
+        """)
 
+@app.post("/webhook_path")
+async def webhook(request: Request):
+    data = await request.json()
+    update = types.Update(**data)
+    await dp.feed_update(update)
+    return {"ok": True}
+
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
+# Удаление сообщений от бота через 60 сек
 async def delete_bot_message(message: types.Message):
     await asyncio.sleep(60)
     try:
         await message.delete()
-        print(f"✅ Удалено: {message.message_id}")
-    except Exception as e:
-        print(f"Ошибка при удалении сообщения: {e}")
+    except Exception:
+        pass
 
-@dp.message(F.chat.id == CHANNEL_ID)
-async def check_and_delete(message: Message):
+# Нормализация текста
+def normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    return ' '.join(text.lower().strip().split())
+
+@dp.message()
+async def check_and_delete(message: types.Message):
+    if message.chat.id != CHANNEL_ID:
+        return
+
     raw_text = message.text or message.caption or ""
-    thread_id = message.message_thread_id if message.is_topic_message else 0
+    text = normalize_text(raw_text)
+    thread_id = message.message_thread_id if hasattr(message, "message_thread_id") else 0
     username = message.from_user.username or message.from_user.full_name
 
-    # Проверка на бота GroupHelp
-    if message.from_user.username == "GroupHelp":
-        if any(k.lower() in raw_text.lower() for k in keywords):
-            await message.delete()
-        return
+    if not text:
+        return  # Если нет текста, пропускаем
 
-    text = normalize_text(raw_text)
-    conn = get_db_connection()
-    if not conn:
-        return
+    async with db_pool.acquire() as conn:
+        # Проверяем, есть ли такое сообщение за последние 7 дней в этом потоке
+        row = await conn.fetchrow(
+            """
+            SELECT date FROM messages
+            WHERE text = $1 AND thread_id = $2 AND date > NOW() - INTERVAL '7 days'
+            """,
+            text, thread_id
+        )
 
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT 1 FROM messages
-                WHERE text = %s AND thread_id = %s AND date > CURRENT_TIMESTAMP - INTERVAL '7 days'
-            """, (text, thread_id))
-            if cursor.fetchone():
+        if row:
+            # Удаляем повторное сообщение
+            try:
                 await message.delete()
-                reply = await message.answer(
-                    f"❌ @{username}, вы уже публиковали такое объявление за последние 7 дней.",
-                    reply_to_message_id=message.message_id
-                )
-                asyncio.create_task(delete_bot_message(reply))
-                return
+            except Exception:
+                pass
 
-            cursor.execute(
-                "INSERT INTO messages (text, date, thread_id) VALUES (%s, CURRENT_TIMESTAMP, %s)",
-                (text or "[Без текста]", thread_id)
+            # Отправляем предупреждение
+            bot_message = await message.answer(
+                f"❌ @{username}, такое сообщение уже было за последние 7 дней.",
+                reply_to_message_id=message.message_id
             )
-            conn.commit()
-    except Exception as e:
-        print(f"Ошибка при записи в БД: {e}")
-    finally:
-        conn.close()
+            # Автоматически удаляем предупреждение через 60 сек
+            asyncio.create_task(delete_bot_message(bot_message))
+            return
+
+        # Если не найдено, вставляем новое сообщение в базу
+        try:
+            await conn.execute(
+                "INSERT INTO messages (text, thread_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                text, thread_id
+            )
+        except Exception:
+            pass
+
