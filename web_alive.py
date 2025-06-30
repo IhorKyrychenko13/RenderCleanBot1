@@ -1,14 +1,14 @@
 from fastapi import FastAPI, Request
-from aiogram import types, Dispatcher
+from aiogram import types
+from bot import dp  # импорт диспетчера из bot.py
 
 app = FastAPI()
-dp = Dispatcher()  # твой диспетчер с хендлерами
 
 @app.post("/webhook_path")
 async def webhook(request: Request):
     data = await request.json()
     update = types.Update(**data)
-    await dp.feed_update(update)  # feed_update, а не process_update
+    await dp.feed_update(update)
     return {"ok": True}
 
 @app.get("/")
