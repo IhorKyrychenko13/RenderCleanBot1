@@ -1,13 +1,6 @@
 from fastapi import FastAPI, Request
-from aiogram import Bot, Dispatcher, types
-import asyncio
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-TOKEN = os.getenv("TOKEN")
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+from aiogram import types
+from bot import dp, bot  # импортируем из bot.py
 
 app = FastAPI()
 

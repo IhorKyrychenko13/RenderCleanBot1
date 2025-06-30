@@ -4,7 +4,6 @@ import psycopg2
 from psycopg2 import OperationalError
 from aiogram import Bot, Dispatcher, Router, types
 from aiogram.types import Message
-from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,12 +32,12 @@ def initialize_database():
     try:
         cursor = conn.cursor()
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            text TEXT,
-            date TIMESTAMP,
-            thread_id INTEGER,
-            UNIQUE(text, thread_id)
-        )
+            CREATE TABLE IF NOT EXISTS messages (
+                text TEXT,
+                date TIMESTAMP,
+                thread_id INTEGER,
+                UNIQUE(text, thread_id)
+            )
         """)
         conn.commit()
         print("Таблица messages успешно инициализирована")
@@ -76,12 +75,12 @@ async def check_and_delete(message: Message):
             print("Запрещённые слова в сообщении от GroupHelp не обнаружены.")
         return
 
-    photos = message.photo or []
-    photo_count = len(photos)
     raw_text = message.text or message.caption or ""
     text = normalize_text(raw_text)
     thread_id = message.message_thread_id if message.is_topic_message else 0
     username = message.from_user.username or message.from_user.full_name
+    photo_count = len(message.photo or [])
+
     print(f"Получено сообщение от @{username}: {text if text else '[Без текста]'}. Изображения: {photo_count}")
 
     conn = get_db_connection()
@@ -123,5 +122,6 @@ async def check_and_delete(message: Message):
 
 async def run_bot():
     dp.include_router(router)
-    print("Бот запущен")
-    await dp.start_polling(bot)
+    print("Бот запущен и ждет обновлений по вебхуку")
+    # Не используем polling, т.к. webhook — бот запускается с внешним сервером
+    await asyncio.Event().wait()
