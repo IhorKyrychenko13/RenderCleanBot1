@@ -17,7 +17,7 @@ dp = Dispatcher()
 
 app = FastAPI()
 
-# Создаём пул в состоянии приложения
+# При старте создаём пул и сохраняем в app.state
 @app.on_event("startup")
 async def startup():
     app.state.db_pool = await asyncpg.create_pool(DATABASE_URL)
@@ -31,10 +31,18 @@ async def startup():
             );
         """)
 
+# При остановке закрываем пул
 @app.on_event("shutdown")
 async def shutdown():
     await app.state.db_pool.close()
 
+# Нормализация текста (приведение к нижнему регистру, убираем лишние пробелы)
+def normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    return ' '.join(text.lower().strip().split())
+
+# Задача для удаления сообщения бота через 60 секунд
 async def delete_bot_message(message: types.Message):
     await asyncio.sleep(60)
     try:
@@ -42,14 +50,12 @@ async def delete_bot_message(message: types.Message):
     except Exception:
         pass
 
-def normalize_text(text: str) -> str:
-    if not text:
-        return ""
-    return ' '.join(text.lower().strip().split())
-
-# Хендлер сообщений, с проверкой и удалением повторов
+# Хэндлер для проверки и удаления дубликатов
 @dp.message()
 async def check_and_delete(message: types.Message):
+    # Берём пул из глобального app
+    db_pool = app.state.db_pool
+
     if message.chat.id != CHANNEL_ID:
         return
 
@@ -60,9 +66,6 @@ async def check_and_delete(message: types.Message):
 
     if not text:
         return
-
-    # Берём пул из глобальной переменной (в данном случае из app.state)
-    db_pool = app.state.db_pool
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -94,7 +97,7 @@ async def check_and_delete(message: types.Message):
         except Exception:
             pass
 
-# FastAPI эндпоинт для webhook Telegram
+# Webhook для FastAPI, чтобы получать обновления из Telegram
 @app.post("/webhook_path")
 async def webhook(request: Request):
     data = await request.json()
