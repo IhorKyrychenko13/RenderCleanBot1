@@ -2,6 +2,7 @@ import os
 import asyncio
 import asyncpg
 from aiogram import Bot, Dispatcher, types
+from aiogram.types import Update
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 
@@ -16,16 +17,11 @@ dp = Dispatcher()
 
 app = FastAPI()
 
-db_pool: asyncpg.Pool | None = None  # Глобальная переменная пула БД
-
-async def create_db_pool():
-    return await asyncpg.create_pool(DATABASE_URL)
-
+# Создаём пул в состоянии приложения
 @app.on_event("startup")
 async def startup():
-    global db_pool
-    db_pool = await create_db_pool()
-    async with db_pool.acquire() as conn:
+    app.state.db_pool = await asyncpg.create_pool(DATABASE_URL)
+    async with app.state.db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 text TEXT,
@@ -35,16 +31,9 @@ async def startup():
             );
         """)
 
-@app.post("/webhook_path")
-async def webhook(request: Request):
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.feed_update(update)
-    return {"ok": True}
-
-@app.get("/")
-async def root():
-    return {"status": "ok"}
+@app.on_event("shutdown")
+async def shutdown():
+    await app.state.db_pool.close()
 
 async def delete_bot_message(message: types.Message):
     await asyncio.sleep(60)
@@ -58,6 +47,7 @@ def normalize_text(text: str) -> str:
         return ""
     return ' '.join(text.lower().strip().split())
 
+# Хендлер сообщений, с проверкой и удалением повторов
 @dp.message()
 async def check_and_delete(message: types.Message):
     if message.chat.id != CHANNEL_ID:
@@ -71,10 +61,8 @@ async def check_and_delete(message: types.Message):
     if not text:
         return
 
-    global db_pool
-    if db_pool is None:
-        print("DB pool not initialized!")
-        return
+    # Берём пул из глобальной переменной (в данном случае из app.state)
+    db_pool = app.state.db_pool
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -105,3 +93,15 @@ async def check_and_delete(message: types.Message):
             )
         except Exception:
             pass
+
+# FastAPI эндпоинт для webhook Telegram
+@app.post("/webhook_path")
+async def webhook(request: Request):
+    data = await request.json()
+    update = Update(**data)
+    await dp.feed_update(bot, update)
+    return {"ok": True}
+
+@app.get("/")
+async def root():
+    return {"status": "ok"}
