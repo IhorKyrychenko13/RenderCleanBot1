@@ -1,20 +1,20 @@
-from aiogram import Bot, Dispatcher, types
 import os
 from fastapi import FastAPI, Request
+from aiogram import Bot, Dispatcher, types
 from dotenv import load_dotenv
 import uvicorn
-from bot import router  # твой роутер с хендлерами
+from your_router_module import router  # импортируй этот модуль с твоим router
 
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
 if not TOKEN:
-    raise RuntimeError("TOKEN is not set in environment variables")
+    raise RuntimeError("TOKEN не установлен")
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher()  # БЕЗ параметров
+dp = Dispatcher()
 
-dp.include_router(router)
+dp.include_router(router)  # подключаем роутер один раз здесь
 
 app = FastAPI()
 
