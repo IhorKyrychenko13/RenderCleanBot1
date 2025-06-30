@@ -2,8 +2,9 @@ import os
 import asyncio
 import psycopg2
 from psycopg2 import OperationalError
-from aiogram import Router, types
+from aiogram import Dispatcher, types
 from aiogram.types import Message
+from aiogram.dispatcher import Dispatcher as AiogramDispatcher
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,7 +12,7 @@ load_dotenv()
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-router = Router()
+dp = AiogramDispatcher()
 
 keywords = ["запрещённое слово1", "запрещённое слово2", "запрещённое слово3"]
 
@@ -44,8 +45,6 @@ def initialize_database():
     finally:
         conn.close()
 
-initialize_database()
-
 def normalize_text(text):
     return ' '.join(text.split()).lower().strip() if text else ""
 
@@ -57,7 +56,7 @@ async def delete_bot_message(message: types.Message):
     except Exception as e:
         print(f"Ошибка при удалении сообщения от бота: {e}")
 
-@router.message()
+@dp.message_handler()
 async def check_and_delete(message: Message):
     if message.chat.id != CHANNEL_ID:
         return
@@ -89,7 +88,7 @@ async def check_and_delete(message: Message):
                 await message.delete()
                 bot_message = await message.answer(
                     f"❌ @{username}, вы уже публиковали такое объявление за последние 7 дней.",
-                    message_thread_id=thread_id
+                    reply_to_message_id=message.message_id
                 )
                 asyncio.create_task(delete_bot_message(bot_message))
                 return

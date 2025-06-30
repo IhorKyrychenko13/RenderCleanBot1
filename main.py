@@ -1,9 +1,9 @@
 import os
-from fastapi import FastAPI, Request
+import asyncio
 from aiogram import Bot, Dispatcher, types
+from aiogram.utils import executor
 from dotenv import load_dotenv
-import uvicorn
-from bot import router
+from bot import dp, initialize_database  # импорт диспетчера и инициализация БД
 
 load_dotenv()
 
@@ -12,23 +12,9 @@ if not TOKEN:
     raise RuntimeError("TOKEN не установлен")
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)  # передаём bot сюда!
+dp.bot = bot  # обязательно для aiogram v2
 
-dp.include_router(router)  # подключаем роутер один раз
-
-app = FastAPI()
-
-@app.post("/webhook_path")
-async def webhook(request: Request):
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.feed_update(update)
-    return {"ok": True}
-
-@app.get("/")
-async def root():
-    return {"status": "ok"}
+initialize_database()
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    executor.start_polling(dp, skip_updates=True)
