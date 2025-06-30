@@ -16,16 +16,14 @@ dp = Dispatcher()
 
 app = FastAPI()
 
-db_pool: asyncpg.Pool | None = None
-
 async def create_db_pool():
     return await asyncpg.create_pool(DATABASE_URL)
 
 @app.on_event("startup")
 async def startup():
-    global db_pool
-    db_pool = await create_db_pool()
-    async with db_pool.acquire() as conn:
+    print("Starting up... Creating DB pool")
+    app.state.db_pool = await create_db_pool()
+    async with app.state.db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 text TEXT,
@@ -34,6 +32,12 @@ async def startup():
                 UNIQUE(text, thread_id)
             );
         """)
+    print("DB pool created and table ensured")
+
+@app.on_event("shutdown")
+async def shutdown():
+    print("Shutting down... Closing DB pool")
+    await app.state.db_pool.close()
 
 @app.post("/webhook_path")
 async def webhook(request: Request):
@@ -60,7 +64,7 @@ def normalize_text(text: str) -> str:
 
 @dp.message()
 async def check_and_delete(message: types.Message):
-    global db_pool
+    db_pool = app.state.db_pool
     if db_pool is None:
         print("DB pool not initialized!")
         return
